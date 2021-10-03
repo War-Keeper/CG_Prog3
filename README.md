@@ -1,1 +1,3 @@
-# CG_Prog3
+# prog3
+
+helper files for the intro cg class's third programming assignment
