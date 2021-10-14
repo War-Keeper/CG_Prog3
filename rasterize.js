@@ -33,7 +33,7 @@ function getJSONFile(url, descr) {
       throw "getJSONFile: parameter not a string";
     else {
       var httpReq = new XMLHttpRequest(); // a new http request
-      httpReq.open("GET", "triangles2.json", false); // init the request
+      httpReq.open("GET", "triangles.json", false); // init the request
       httpReq.send(null); // send the request
       var startTime = Date.now();
       while ((httpReq.status !== 200) && (httpReq.readyState !== XMLHttpRequest.DONE)) {
@@ -82,7 +82,9 @@ function loadTriangles() {
     var whichSetTri; // index of triangle in current triangle set
     var coordArray = []; // 1D array of vertex coords for WebGL
     var indexArray = []; // 1D array of vertex indices for WebGL
-    var colors = []; // 1D array of color values for each triangle
+    var ambient = []; // 1D array of ambient color values for each triangle
+    var diffuse = []; // 1D array of diffuse color values for each triangle
+    var specular = []; // 1D array of specular color values for each triangle
     var normalArray = []; // 1D array of Normal values for each vertex
     var vtxBufferSize = 0; // the number of vertices in the vertex buffer
     var vtxToAdd = []; // vtx coords to add to the coord array
@@ -94,9 +96,8 @@ function loadTriangles() {
 
       // set up the vertex coord array
       for (whichSetVert = 0; whichSetVert < inputTriangles[whichSet].vertices.length; whichSetVert++) {
-        vtxToAdd = inputTriangles[whichSet].vertices[whichSetVert];
-        coordArray.push(vtxToAdd[0], vtxToAdd[1], vtxToAdd[2]);
-        // console.log(inputTriangles[whichSet].vertices[whichSetVert]);
+       coordArray = coordArray.concat(inputTriangles[whichSet].vertices[whichSetVert]);
+
       }
 
       // set up the triangle index array, adjusting indices across sets
@@ -105,16 +106,35 @@ function loadTriangles() {
         indexArray.push(triToAdd[0], triToAdd[1], triToAdd[2]);
       } // end for triangles in set
 
+      // set up the ambient color array
+      var tn = inputTriangles[whichSet].triangles.length;
+      for (var t = 0; t < tn; t++) {
+        for (var i = 0; i < 3; i++) {
+          ambient.push(inputTriangles[whichSet].material.ambient[0]);
+          ambient.push(inputTriangles[whichSet].material.ambient[1]);
+          ambient.push(inputTriangles[whichSet].material.ambient[2]);
+        }
+      }
+
       // set up the diffuse color array
       var tn = inputTriangles[whichSet].triangles.length;
       for (var t = 0; t < tn; t++) {
         for (var i = 0; i < 3; i++) {
-          colors.push(inputTriangles[whichSet].material.diffuse[0]);
-          colors.push(inputTriangles[whichSet].material.diffuse[1]);
-          colors.push(inputTriangles[whichSet].material.diffuse[2]);
+          diffuse.push(inputTriangles[whichSet].material.diffuse[0]);
+          diffuse.push(inputTriangles[whichSet].material.diffuse[1]);
+          diffuse.push(inputTriangles[whichSet].material.diffuse[2]);
         }
       }
 
+      // set up the specular color array
+      var tn = inputTriangles[whichSet].triangles.length;
+      for (var t = 0; t < tn; t++) {
+        for (var i = 0; i < 3; i++) {
+          specular.push(inputTriangles[whichSet].material.specular[0]);
+          specular.push(inputTriangles[whichSet].material.specular[1]);
+          specular.push(inputTriangles[whichSet].material.specular[2]);
+        }
+      }
 
       // set up the normals array
       for (whichSetNorm = 0; whichSetNorm < inputTriangles[whichSet].normals.length; whichSetNorm++) {
@@ -138,11 +158,21 @@ function loadTriangles() {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer); // activate that buffer
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indexArray), gl.STATIC_DRAW); // indices to that buffer
 
-    // send the colors to webGL
-    color_buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer); // activate that buffer
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW); // indices to that buffer
 
+    // send the diffuse colors to webGL
+    amb_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, amb_buffer); // activate that buffer
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ambient), gl.STATIC_DRAW); // indices to that buffer
+
+    // send the diffuse colors to webGL
+    diff_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, diff_buffer); // activate that buffer
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diffuse), gl.STATIC_DRAW); // indices to that buffer
+
+    // send the diffuse colors to webGL
+    spec_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, spec_buffer); // activate that buffer
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(specular), gl.STATIC_DRAW); // indices to that buffer
 
     // send the normals to webGL
     normBuffer = gl.createBuffer();
@@ -159,9 +189,10 @@ function setupShaders() {
   // define fragment shader in essl using es6 template strings
   var fShaderCode = `
         precision mediump float;
-        varying vec3 vColor;
+        varying vec3 vDiff;
+        varying vec3 vNormal;
         void main(void) {
-            gl_FragColor = vec4(vColor, 1.0); // all fragments are white
+            gl_FragColor = vec4(vDiff, 1.0); // all fragments are white
         }
     `;
 
@@ -169,15 +200,23 @@ function setupShaders() {
   var vShaderCode = `
         attribute vec3 vertexPosition;
         uniform bool altPosition;
-        attribute vec3 color;
+        attribute vec3 ambient;
+        attribute vec3 diffuse;
+        attribute vec3 specular;
         attribute vec3 normal;
-        varying vec3 vColor;
+        varying vec3 vNormal;
+        varying vec3 vAmb;
+        varying vec3 vDiff;
+        varying vec3 vSpec;
         void main(void) {
             if(altPosition)
                 gl_Position = vec4(vertexPosition + vec3(-1.0, -1.0, 0.0), 1.0); // use the altered position
             else
                 gl_Position = vec4(vertexPosition, 1.0); // use the untransformed position
-            vColor = color;
+            vAmb = ambient;
+            vDiff = diffuse;
+            vSpec = specular;
+            vNormal = normal;
         }
     `;
 
@@ -209,11 +248,15 @@ function setupShaders() {
       } else { // no shader program link errors
         gl.useProgram(shaderProgram); // activate shader program (frag and vert)
         vertexPositionAttrib = gl.getAttribLocation(shaderProgram, "vertexPosition"); // get pointer to vertex shader input
-        color = gl.getAttribLocation(shaderProgram, "color");
+        ambient = gl.getAttribLocation(shaderProgram, "ambient");
+        diffuse = gl.getAttribLocation(shaderProgram, "diffuse");
+        specular = gl.getAttribLocation(shaderProgram, "specular");
         normal = gl.getAttribLocation(shaderProgram, "normal");
         gl.enableVertexAttribArray(vertexPositionAttrib); // input to shader from array
         altPositionUniform = gl.getUniformLocation(shaderProgram, "altPosition"); // get pointer to altPosition flag
-        gl.enableVertexAttribArray(color); // input to shader from color array
+        gl.enableVertexAttribArray(ambient); // input to shader from ambient color array
+        gl.enableVertexAttribArray(diffuse); // input to shader from diffuse color array
+        gl.enableVertexAttribArray(specular); // input to shader from specular color array
         gl.enableVertexAttribArray(normal); // input to shader from the normal array
       } // end if no shader program link errors
     } // end if no compile errors
@@ -244,9 +287,17 @@ function renderTriangles() {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer); // activate
   gl.vertexAttribPointer(vertexPositionAttrib, 3, gl.FLOAT, false, 0, 0); // feed
 
-  // color buffer: activate and feed to vertex shader
-  gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer);
-  gl.vertexAttribPointer(color, 3, gl.FLOAT, false, 0, 0);
+  // ambient color buffer: activate and feed to vertex shader
+  gl.bindBuffer(gl.ARRAY_BUFFER, amb_buffer);
+  gl.vertexAttribPointer(ambient, 3, gl.FLOAT, false, 0, 0);
+
+  // diffuse color buffer: activate and feed to vertex shader
+  gl.bindBuffer(gl.ARRAY_BUFFER, diff_buffer);
+  gl.vertexAttribPointer(diffuse, 3, gl.FLOAT, false, 0, 0);
+
+  // diffuse color buffer: activate and feed to vertex shader
+  gl.bindBuffer(gl.ARRAY_BUFFER, spec_buffer);
+  gl.vertexAttribPointer(specular, 3, gl.FLOAT, false, 0, 0);
 
   // Normal buffer: activate and feed to vertex shader
   gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
